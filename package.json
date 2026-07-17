@@ -1,0 +1,14 @@
+{
+  "name": "inventory-system",
+  "version": "1.0.0",
+  "description": "Sistema de inventario con gráficos",
+  "main": "index.ts",
+  "type": "module",
+  "scripts": {
+    "dev": "bun run index.ts",
+    "start": "bun run index.ts"
+  },
+  "dependencies": {
+    "hono": "^4.0.0"
+  }
+}
