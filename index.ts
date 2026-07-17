@@ -407,6 +407,7 @@ app.get("/", (c) => {
     let editingId = null;
     let currentStartDate = null;
     let currentEndDate = null;
+    let allProducts = [];
 
     // Set default dates (last 30 days)
     function setDefaultDates() {
@@ -443,8 +444,14 @@ app.get("/", (c) => {
 
       if (productId) {
         document.getElementById('modal-title').textContent = 'Editar Producto';
-        const form = document.getElementById('products-table');
-        // El producto se cargaría aquí
+        const p = allProducts.find(item => item.id === productId);
+        if (p) {
+          document.getElementById('form-name').value = p.name;
+          document.getElementById('form-cost').value = p.cost;
+          document.getElementById('form-price').value = p.price;
+          document.getElementById('form-stock').value = p.stock;
+          document.getElementById('form-sold').value = p.quantity_sold;
+        }
       } else {
         document.getElementById('modal-title').textContent = 'Nuevo Producto';
         document.getElementById('form-name').value = '';
@@ -541,6 +548,8 @@ app.get("/", (c) => {
 
         const products = await pRes.json();
         const stats = await sRes.json();
+
+        allProducts = products;
 
         // Update stats
         document.getElementById('stat-ventas').textContent = formatCurrency(stats.totalSales);
