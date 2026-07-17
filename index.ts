@@ -7,7 +7,6 @@ import { cors } from "hono/cors";
 const app = new Hono();
 app.use("/*", cors());
 
-// Tipos
 interface Product {
   id?: number;
   name: string;
@@ -30,7 +29,6 @@ interface Stats {
   totalStock: number;
 }
 
-// Inicializar base de datos
 async function initDB() {
   try {
     await Bun.sql`
@@ -51,7 +49,6 @@ async function initDB() {
   }
 }
 
-// Calcular campos derivados
 function calculateFields(product: Product) {
   const iva = product.price * 0.19;
   const profit = (product.price - product.cost) * product.quantity_sold;
@@ -69,29 +66,27 @@ function calculateFields(product: Product) {
   };
 }
 
-// 📦 CRUD ENDPOINTS
-
 app.get("/api/products", async (c) => {
   try {
     const startDate = c.req.query("startDate");
     const endDate = c.req.query("endDate");
 
-    let query = Bun.sql`SELECT * FROM products`;
+    let products: any[] = [];
 
     if (startDate && endDate) {
-      query = Bun.sql`
+      products = await Bun.sql`
         SELECT * FROM products 
         WHERE date_created >= ${startDate} AND date_created <= ${endDate}
         ORDER BY date_created DESC
       `;
     } else {
-      query = Bun.sql`SELECT * FROM products ORDER BY date_created DESC`;
+      products = await Bun.sql`SELECT * FROM products ORDER BY date_created DESC`;
     }
 
-    const products = await query;
     const withCalcs = products.map(calculateFields);
     return c.json(withCalcs);
   } catch (error) {
+    console.error("Error fetching products:", error);
     return c.json({ error: "Error fetching products" }, 500);
   }
 });
@@ -105,7 +100,7 @@ app.post("/api/products", async (c) => {
       return c.json({ error: "Missing required fields" }, 400);
     }
 
-    const result = await Bun.sql`
+    const result: any = await Bun.sql`
       INSERT INTO products (name, cost, price, stock, quantity_sold)
       VALUES (${name}, ${cost}, ${price}, ${stock || 0}, ${quantity_sold || 0})
       RETURNING *
@@ -114,6 +109,7 @@ app.post("/api/products", async (c) => {
     const product = calculateFields(result[0]);
     return c.json(product, 201);
   } catch (error) {
+    console.error("Error creating product:", error);
     return c.json({ error: "Error creating product" }, 500);
   }
 });
@@ -123,7 +119,7 @@ app.put("/api/products/:id", async (c) => {
     const id = c.req.param("id");
     const body = await c.req.json();
 
-    const product = await Bun.sql`SELECT * FROM products WHERE id = ${id}`;
+    const product: any = await Bun.sql`SELECT * FROM products WHERE id = ${id}`;
     if (product.length === 0) {
       return c.json({ error: "Product not found" }, 404);
     }
@@ -137,7 +133,7 @@ app.put("/api/products/:id", async (c) => {
       quantity_sold: body.quantity_sold ?? current.quantity_sold,
     };
 
-    const result = await Bun.sql`
+    const result: any = await Bun.sql`
       UPDATE products 
       SET name = ${updated.name}, 
           cost = ${updated.cost}, 
@@ -152,6 +148,7 @@ app.put("/api/products/:id", async (c) => {
     const withCalcs = calculateFields(result[0]);
     return c.json(withCalcs);
   } catch (error) {
+    console.error("Error updating product:", error);
     return c.json({ error: "Error updating product" }, 500);
   }
 });
@@ -159,48 +156,47 @@ app.put("/api/products/:id", async (c) => {
 app.delete("/api/products/:id", async (c) => {
   try {
     const id = c.req.param("id");
-
-    const result = await Bun.sql`DELETE FROM products WHERE id = ${id}`;
+    await Bun.sql`DELETE FROM products WHERE id = ${id}`;
     return c.json({ success: true, message: "Product deleted" });
   } catch (error) {
+    console.error("Error deleting product:", error);
     return c.json({ error: "Error deleting product" }, 500);
   }
 });
 
-// 📊 STATS ENDPOINT
 app.get("/api/stats", async (c) => {
   try {
     const startDate = c.req.query("startDate");
     const endDate = c.req.query("endDate");
 
-    let query = Bun.sql`
-      SELECT 
-        COUNT(*) as productCount,
-        SUM(stock) as totalStock,
-        SUM(quantity_sold) as totalQuantitySold,
-        SUM(price * quantity_sold) as totalSales,
-        SUM(cost * quantity_sold) as totalCost,
-        SUM((price - cost) * quantity_sold) as totalProfit
-      FROM products
-    `;
+    let result: any;
 
     if (startDate && endDate) {
-      query = Bun.sql`
+      result = await Bun.sql`
         SELECT 
           COUNT(*) as productCount,
-          SUM(stock) as totalStock,
-          SUM(quantity_sold) as totalQuantitySold,
-          SUM(price * quantity_sold) as totalSales,
-          SUM(cost * quantity_sold) as totalCost,
-          SUM((price - cost) * quantity_sold) as totalProfit
+          COALESCE(SUM(stock), 0) as totalStock,
+          COALESCE(SUM(quantity_sold), 0) as totalQuantitySold,
+          COALESCE(SUM(price * quantity_sold), 0) as totalSales,
+          COALESCE(SUM(cost * quantity_sold), 0) as totalCost,
+          COALESCE(SUM((price - cost) * quantity_sold), 0) as totalProfit
         FROM products
         WHERE date_created >= ${startDate} AND date_created <= ${endDate}
       `;
+    } else {
+      result = await Bun.sql`
+        SELECT 
+          COUNT(*) as productCount,
+          COALESCE(SUM(stock), 0) as totalStock,
+          COALESCE(SUM(quantity_sold), 0) as totalQuantitySold,
+          COALESCE(SUM(price * quantity_sold), 0) as totalSales,
+          COALESCE(SUM(cost * quantity_sold), 0) as totalCost,
+          COALESCE(SUM((price - cost) * quantity_sold), 0) as totalProfit
+        FROM products
+      `;
     }
 
-    const result = await query;
     const stats = result[0];
-
     const totalProfit = parseFloat(stats.totalProfit || 0);
     const totalSales = parseFloat(stats.totalSales || 0);
 
@@ -217,30 +213,27 @@ app.get("/api/stats", async (c) => {
 
     return c.json(response);
   } catch (error) {
+    console.error("Error fetching stats:", error);
     return c.json({ error: "Error fetching stats" }, 500);
   }
 });
 
-// 🏠 FRONTEND
-app.get("/", (c) => {
-  return c.html(`<!DOCTYPE html>
+const htmlContent = `<!DOCTYPE html>
 <html lang="es">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Sistema de Inventario</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"><\/script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"><\/script>
 </head>
 <body class="bg-gray-50">
   <div class="max-w-7xl mx-auto p-6">
-    <!-- Header -->
     <div class="bg-blue-600 text-white rounded-lg p-8 mb-8">
       <h1 class="text-4xl font-bold mb-2">📦 Sistema de Inventario</h1>
       <p class="text-blue-100">Gestión de productos, ventas y ganancias</p>
     </div>
 
-    <!-- Date Filter -->
     <div class="bg-white rounded-lg p-6 shadow mb-8">
       <h3 class="text-lg font-bold mb-4">📅 Filtro por Fechas</h3>
       <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -263,7 +256,6 @@ app.get("/", (c) => {
       </div>
     </div>
 
-    <!-- Stats -->
     <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
       <div class="bg-white rounded-lg p-6 shadow">
         <p class="text-gray-600 text-sm font-semibold mb-2">VENTAS TOTALES</p>
@@ -283,25 +275,22 @@ app.get("/", (c) => {
       </div>
     </div>
 
-    <!-- Charts -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
       <div class="bg-white rounded-lg p-6 shadow">
         <h3 class="text-lg font-bold mb-4">📊 Ventas por Producto</h3>
-        <canvas id="ventasChart"></canvas>
+        <canvas id="ventasChart"><\/canvas>
       </div>
       <div class="bg-white rounded-lg p-6 shadow">
         <h3 class="text-lg font-bold mb-4">💰 Ganancias por Producto</h3>
-        <canvas id="gananciasChart"></canvas>
+        <canvas id="gananciasChart"><\/canvas>
       </div>
     </div>
 
-    <!-- Stock Chart -->
     <div class="bg-white rounded-lg p-6 shadow mb-8">
       <h3 class="text-lg font-bold mb-4">📦 Stock Disponible</h3>
-      <canvas id="stockChart"></canvas>
+      <canvas id="stockChart"><\/canvas>
     </div>
 
-    <!-- Products Section -->
     <div class="bg-white rounded-lg p-6 shadow mb-8">
       <div class="flex justify-between items-center mb-4">
         <h3 class="text-lg font-bold">Inventario de Productos</h3>
@@ -316,19 +305,18 @@ app.get("/", (c) => {
               <th class="p-3 text-left font-semibold">Producto</th>
               <th class="p-3 text-right font-semibold">Costo</th>
               <th class="p-3 text-right font-semibold">Precio</th>
-              <th class="p-3 text-right font-semibold">IVA (19%)</th>
+              <th class="p-3 text-right font-semibold">IVA</th>
               <th class="p-3 text-right font-semibold">Vendidos</th>
               <th class="p-3 text-right font-semibold">Stock</th>
               <th class="p-3 text-right font-semibold">Ganancia</th>
               <th class="p-3 text-center font-semibold">Acciones</th>
             </tr>
           </thead>
-          <tbody id="products-table"></tbody>
+          <tbody id="products-table"><\/tbody>
         </table>
       </div>
     </div>
 
-    <!-- Profit Widget -->
     <div class="bg-gradient-to-r from-purple-500 to-orange-500 rounded-lg p-8 text-white">
       <h3 class="text-2xl font-bold mb-6">💰 Repartición de Ganancias</h3>
       <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -346,7 +334,6 @@ app.get("/", (c) => {
     </div>
   </div>
 
-  <!-- Modal -->
   <div id="modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
     <div class="bg-white rounded-lg p-8 max-w-md w-full mx-4">
       <h3 class="text-2xl font-bold mb-6" id="modal-title">Nuevo Producto</h3>
@@ -409,7 +396,6 @@ app.get("/", (c) => {
     let currentEndDate = null;
     let allProducts = [];
 
-    // Set default dates (last 30 days)
     function setDefaultDates() {
       const endDate = new Date();
       const startDate = new Date(endDate.getTime() - 30 * 24 * 60 * 60 * 1000);
@@ -481,7 +467,7 @@ app.get("/", (c) => {
       }
 
       const method = editingId ? 'PUT' : 'POST';
-      const url = editingId ? \`/api/products/\${editingId}\` : '/api/products';
+      const url = editingId ? '/api/products/' + editingId : '/api/products';
 
       try {
         const res = await fetch(url, {
@@ -504,7 +490,7 @@ app.get("/", (c) => {
     async function deleteProduct(id) {
       if (confirm('¿Eliminar este producto?')) {
         try {
-          const res = await fetch(\`/api/products/\${id}\`, { method: 'DELETE' });
+          const res = await fetch('/api/products/' + id, { method: 'DELETE' });
           if (res.ok) {
             loadData();
           }
@@ -542,8 +528,8 @@ app.get("/", (c) => {
         if (currentEndDate) params.append('endDate', currentEndDate);
 
         const [pRes, sRes] = await Promise.all([
-          fetch(\`/api/products?\${params}\`),
-          fetch(\`/api/stats?\${params}\`)
+          fetch('/api/products?' + params),
+          fetch('/api/stats?' + params)
         ]);
 
         const products = await pRes.json();
@@ -551,34 +537,31 @@ app.get("/", (c) => {
 
         allProducts = products;
 
-        // Update stats
         document.getElementById('stat-ventas').textContent = formatCurrency(stats.totalSales);
         document.getElementById('stat-ganancia').textContent = formatCurrency(stats.totalProfit);
         document.getElementById('stat-40').textContent = formatCurrency(stats.profit40);
         document.getElementById('stat-60').textContent = formatCurrency(stats.profit60);
         document.getElementById('widget-40').textContent = formatCurrency(stats.profit40);
         document.getElementById('widget-60').textContent = formatCurrency(stats.profit60);
-        document.getElementById('widget-40-percent').textContent = \`de \${formatCurrency(stats.totalProfit)}\`;
-        document.getElementById('widget-60-percent').textContent = \`de \${formatCurrency(stats.totalProfit)}\`;
+        document.getElementById('widget-40-percent').textContent = 'de ' + formatCurrency(stats.totalProfit);
+        document.getElementById('widget-60-percent').textContent = 'de ' + formatCurrency(stats.totalProfit);
 
-        // Update table
-        document.getElementById('products-table').innerHTML = products.map(p => \`
-          <tr class="border-b hover:bg-gray-50">
-            <td class="p-3 font-medium">\${p.name}</td>
-            <td class="p-3 text-right">\${formatCurrency(p.cost)}</td>
-            <td class="p-3 text-right">\${formatCurrency(p.price)}</td>
-            <td class="p-3 text-right">\${formatCurrency(p.iva)}</td>
-            <td class="p-3 text-right"><span class="bg-blue-100 text-blue-800 px-2 py-1 rounded">\${p.quantity_sold}</span></td>
-            <td class="p-3 text-right"><span class="bg-green-100 text-green-800 px-2 py-1 rounded">\${p.stock}</span></td>
-            <td class="p-3 text-right font-bold text-green-600">\${formatCurrency(p.profit)}</td>
-            <td class="p-3 text-center">
-              <button onclick="openModal(\${p.id})" class="text-blue-600 hover:text-blue-800 mr-2">🖊️</button>
-              <button onclick="deleteProduct(\${p.id})" class="text-red-600 hover:text-red-800">❌</button>
-            </td>
-          </tr>
-        \`).join('');
+        document.getElementById('products-table').innerHTML = products.map(p => 
+          '<tr class="border-b hover:bg-gray-50">' +
+          '<td class="p-3 font-medium">' + p.name + '<\/td>' +
+          '<td class="p-3 text-right">' + formatCurrency(p.cost) + '<\/td>' +
+          '<td class="p-3 text-right">' + formatCurrency(p.price) + '<\/td>' +
+          '<td class="p-3 text-right">' + formatCurrency(p.iva) + '<\/td>' +
+          '<td class="p-3 text-right"><span class="bg-blue-100 text-blue-800 px-2 py-1 rounded">' + p.quantity_sold + '<\/span><\/td>' +
+          '<td class="p-3 text-right"><span class="bg-green-100 text-green-800 px-2 py-1 rounded">' + p.stock + '<\/span><\/td>' +
+          '<td class="p-3 text-right font-bold text-green-600">' + formatCurrency(p.profit) + '<\/td>' +
+          '<td class="p-3 text-center">' +
+          '<button onclick="openModal(' + p.id + ')" class="text-blue-600 hover:text-blue-800 mr-2">🖊️<\/button>' +
+          '<button onclick="deleteProduct(' + p.id + ')" class="text-red-600 hover:text-red-800">❌<\/button>' +
+          '<\/td>' +
+          '<\/tr>'
+        ).join('');
 
-        // Update charts
         updateCharts(products);
       } catch (error) {
         console.error('Error loading data:', error);
@@ -593,10 +576,10 @@ app.get("/", (c) => {
 
       const colors = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#14b8a6', '#f97316', '#6366f1'];
 
-      // Destroy old charts
-      Object.values(charts).forEach(chart => chart.destroy());
+      Object.values(charts).forEach((chart) => {
+        if (chart && chart.destroy) chart.destroy();
+      });
 
-      // Ventas
       charts.ventas = new Chart(document.getElementById('ventasChart'), {
         type: 'bar',
         data: { 
@@ -606,7 +589,6 @@ app.get("/", (c) => {
         options: { responsive: true, indexAxis: 'y', plugins: { legend: { display: false } } }
       });
 
-      // Ganancias
       charts.ganancias = new Chart(document.getElementById('gananciasChart'), {
         type: 'doughnut',
         data: { 
@@ -616,7 +598,6 @@ app.get("/", (c) => {
         options: { responsive: true }
       });
 
-      // Stock
       charts.stock = new Chart(document.getElementById('stockChart'), {
         type: 'line',
         data: { 
@@ -627,12 +608,14 @@ app.get("/", (c) => {
       });
     }
 
-    // Inicializar
     setDefaultDates();
     loadData();
   </script>
 </body>
-</html>\`);
+</html>`;
+
+app.get("/", (c) => {
+  return c.html(htmlContent);
 });
 
 await initDB();
