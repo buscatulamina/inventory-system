@@ -66,6 +66,66 @@ function calculateFields(product: Product) {
   };
 }
 
+app.get("/api/load-demo-products", async (c) => {
+  try {
+    const demoProducts: Product[] = [
+      { name: "Airpods 4", cost: 20000, price: 40000, quantity_sold: 5, stock: 5 },
+      { name: "Airpods pro 3", cost: 20000, price: 60000, quantity_sold: 2, stock: 4 },
+      { name: "Airpods max", cost: 30000, price: 45000, quantity_sold: 4, stock: 2 },
+      { name: "Airpods 3", cost: 15000, price: 15000, quantity_sold: 0, stock: 8 },
+      { name: "earpods lighting", cost: 6000, price: 10000, quantity_sold: 5, stock: 5 },
+      { name: "earpods tipo c", cost: 6000, price: 10000, quantity_sold: 5, stock: 5 },
+      { name: "Adaptador 20w", cost: 5000, price: 8000, quantity_sold: 6, stock: 6 },
+      { name: "Adaptador 40w + cable", cost: 7000, price: 15000, quantity_sold: 7, stock: 5 },
+      { name: "Adaptador 50w", cost: 6000, price: 12000, quantity_sold: 6, stock: 6 },
+    ];
+
+    const inserted: any[] = [];
+
+    for (const product of demoProducts) {
+      const result: any = await Bun.sql`
+        INSERT INTO products (name, cost, price, stock, quantity_sold)
+        VALUES (${product.name}, ${product.cost}, ${product.price}, ${product.stock}, ${product.quantity_sold})
+        RETURNING *
+      `;
+      inserted.push(calculateFields(result[0]));
+    }
+
+    const stats: Stats = inserted.reduce(
+      (acc, p) => {
+        acc.totalSales += p.sales;
+        acc.totalCost += p.cost * p.quantity_sold;
+        acc.totalProfit += p.profit;
+        acc.profit40 += p.profit40;
+        acc.profit60 += p.profit60;
+        acc.totalQuantitySold += p.quantity_sold;
+        acc.totalStock += p.stock;
+        return acc;
+      },
+      {
+        totalSales: 0,
+        totalCost: 0,
+        totalProfit: 0,
+        profit40: 0,
+        profit60: 0,
+        productCount: inserted.length,
+        totalQuantitySold: 0,
+        totalStock: 0,
+      } as Stats
+    );
+
+    return c.json({
+      success: true,
+      message: `${inserted.length} productos de demostración cargados exitosamente`,
+      stats,
+      products: inserted,
+    });
+  } catch (error) {
+    console.error("Error loading demo products:", error);
+    return c.json({ error: "Error loading demo products" }, 500);
+  }
+});
+
 app.get("/api/products", async (c) => {
   try {
     const startDate = c.req.query("startDate");
