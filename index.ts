@@ -66,6 +66,16 @@ function calculateFields(product: Product) {
   };
 }
 
+app.delete("/api/truncate", async (c) => {
+  try {
+    await Bun.sql`DELETE FROM products`;
+    return c.json({ success: true, message: "Todos los productos han sido eliminados" });
+  } catch (error) {
+    console.error("Error truncating products:", error);
+    return c.json({ error: "Error truncating products" }, 500);
+  }
+});
+
 app.get("/api/load-demo-products", async (c) => {
   try {
     const demoProducts: Product[] = [
@@ -79,6 +89,10 @@ app.get("/api/load-demo-products", async (c) => {
       { name: "Adaptador 40w + cable", cost: 7000, price: 15000, quantity_sold: 7, stock: 5 },
       { name: "Adaptador 50w", cost: 6000, price: 12000, quantity_sold: 6, stock: 6 },
     ];
+
+    // Elimina todos los productos existentes antes de insertar los nuevos,
+    // evitando duplicados si el endpoint se llama más de una vez.
+    await Bun.sql`DELETE FROM products`;
 
     const inserted: any[] = [];
 
